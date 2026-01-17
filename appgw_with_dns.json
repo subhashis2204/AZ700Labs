@@ -1,0 +1,181 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "appgwname": {
+      "type": "string",
+      "defaultValue": "appgw"
+    }
+  },
+  "variables": {
+    "vnetname": "[concat(parameters('appgwname'), '-vnet')]",
+    "subnetname": "[concat(parameters('appgwname'), '-subnet')]",
+    "pipname": "[concat(parameters('appgwname'), '-pip')]",
+    "location": "[resourceGroup().location]"
+  },
+  "resources": [
+    {
+      "apiVersion": "2020-11-01",
+      "name": "[variables('vnetname')]",
+      "type": "Microsoft.Network/virtualNetworks",
+      "location": "[variables('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": ["10.0.0.0/8"]
+        },
+        "subnets": [
+          {
+            "name": "[variables('subnetname')]",
+            "properties": {
+              "addressPrefix": "10.0.0.0/24"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "2020-11-01",
+      "name": "[variables('pipname')]",
+      "type": "Microsoft.Network/publicIPAddresses",
+      "location": "[variables('location')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "zones": ["1", "2", "3"],
+      "properties": {
+        "publicIPAllocationMethod": "Static"
+      }
+    },
+    {
+      "apiVersion": "2017-09-01",
+      "name": "subhashispaul2204.me",
+      "type": "Microsoft.Network/dnsZones",
+      "location": "global",
+      "properties": {}
+    },
+    {
+      "apiVersion": "2017-09-01",
+      "type": "Microsoft.Network/dnsZones/A",
+      "name": "subhashispaul2204.me/www",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('pipname'))]",
+        "[resourceId('Microsoft.Network/dnsZones', 'subhashispaul2204.me')]"
+      ],
+      "properties": {
+        "TTL": 300,
+        "ARecords": [
+          {
+            "ipv4Address": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('pipname'))].ipAddress]"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "2020-11-01",
+      "name": "[parameters('appgwname')]",
+      "type": "Microsoft.Network/applicationGateways",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('pipname'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetname'))]"
+      ],
+      "location": "[variables('location')]",
+      "properties": {
+        "sku": {
+          "name": "Standard_v2",
+          "tier": "Standard_v2"
+        },
+        "autoscaleConfiguration": {
+          "minCapacity": 1,
+          "maxCapacity": 4
+        },
+        "frontendIPConfigurations": [
+          {
+            "name": "appgwfrntipconfig",
+            "properties": {
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('pipname'))]"
+              }
+            }
+          }
+        ],
+        "frontendPorts": [
+          {
+            "name": "internetPort80",
+            "properties": {
+              "port": 80
+            }
+          }
+        ],
+        "httpListeners": [
+          {
+            "name": "portListener80",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/frontendIPConfigurations', parameters('appgwname'), 'appgwfrntipconfig')]"
+              },
+              "frontendPort": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/frontendPorts', parameters('appgwname'), 'internetPort80')]"
+              },
+              "protocol": "Http"
+            }
+          }
+        ],
+        "backendAddressPools": [
+          {
+            "name": "pool1",
+            "properties": {
+              "backendAddresses": []
+            }
+          },
+          {
+            "name": "pool2",
+            "properties": {
+              "backendAddresses": []
+            }
+          }
+        ],
+        "backendHttpSettingsCollection": [
+          {
+            "name": "backendsetting1",
+            "properties": {
+              "protocol": "Http",
+              "port": 80,
+              "connectionDraining": {
+                "enabled": true,
+                "drainTimeoutInSec": 1
+              }
+            }
+          }
+        ],
+        "gatewayIPConfigurations": [
+          {
+            "name": "setupSubnetConnection",
+            "properties": {
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets',variables('vnetname'), variables('subnetname'))]"
+              }
+            }
+          }
+        ],
+        "requestRoutingRules": [
+          {
+            "name": "routingrule1",
+            "properties": {
+              "httpListener": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/httpListeners', parameters('appgwname'), 'portListener80')]"
+              },
+              "backendHttpSettings": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/backendHttpSettingsCollection', parameters('appgwname'), 'backendsetting1')]"
+              },
+              "backendAddressPool": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/backendAddressPools', parameters('appgwname'), 'pool1')]"
+              },
+              "ruleType": "Basic"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {}
+}
