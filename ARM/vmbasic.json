@@ -36,7 +36,8 @@
       }
     },
     {
-      "apiVersion": "2021-07-01"
+      "apiVersion": "2021-07-01",
+      "type": "Microsoft.Compute/disks"
     }
   ],
   "outputs": {}
