@@ -1,25 +1,21 @@
-# ===============================
-# 1. Setup Directories
-# ===============================
+# ==============================================================================
+# PHASE 1: DEEP CLEAN & PREPARATION
+# ==============================================================================
+Write-Host "🧹 Cleaning environment..." -ForegroundColor Yellow
+Get-Process -Name "PowerShell" | Where-Object { $_.Id -ne $PID } | Stop-Process -Force -ErrorAction SilentlyContinue
+netsh http delete urlacl url=http://*:8080/ 2>$null
+netsh http add urlacl url=http://*:8080/ user=Everyone 2>$null
+New-NetFirewallRule -DisplayName "Allow HTTP 8080" -Direction Inbound -LocalPort 8080 -Protocol TCP -Action Allow -ErrorAction SilentlyContinue
+
+# ==============================================================================
+# PHASE 2: SETUP DIRECTORIES AND SERVER SCRIPT
+# ==============================================================================
 $scriptDir = "C:\AzureScripts"
 if (!(Test-Path $scriptDir)) { New-Item -ItemType Directory -Path $scriptDir -Force }
 $scriptPath = "$scriptDir\PersistentServer8080.ps1"
 
-# Grant permission for the port
-netsh http add urlacl url=http://*:8080/ user=Everyone 2>$null
-
-# ===============================
-# 2. Open Firewall Port
-# ===============================
-New-NetFirewallRule -DisplayName "Allow HTTP 8080" -Direction Inbound -LocalPort 8080 -Protocol TCP -Action Allow -ErrorAction SilentlyContinue
-
-# ===============================
-# 3. Create the background server script
-# ===============================
 $serverCode = @'
 $port = 8080
-
-# Kill any existing listeners
 Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | ForEach-Object {
     Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
 }
@@ -33,15 +29,30 @@ while ($listener.IsListening) {
         $context = $listener.GetContext()
         $request = $context.Request
         $response = $context.Response
-
-        # ---- Fixed Query String Logic ----
         $relativePath = $request.Url.AbsolutePath
-        $rawQuery     = $request.Url.Query
-        $queryString  = if ([string]::IsNullOrWhiteSpace($rawQuery)) { "(No Parameters)" } else { $rawQuery }
-        
-        $machineName  = $env:COMPUTERNAME
-        $bootTime     = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString("yyyy-MM-dd HH:mm:ss")
-        $currentTime  = Get-Date -Format "HH:mm:ss"
+
+        # ==========================================
+        # ROUTE: /health (For Custom Health Probe)
+        # ==========================================
+        if ($relativePath -eq "/health") {
+            $msg = "OK"
+            $buffer = [System.Text.Encoding]::UTF8.GetBytes($msg)
+            $response.ContentLength64 = $buffer.Length
+            $response.ContentType = "text/plain"
+            $response.StatusCode = 200
+            $response.OutputStream.Write($buffer, 0, $buffer.Length)
+            $response.Close()
+            continue # Skip the rest and wait for next request
+        }
+
+        # ==========================================
+        # ROUTE: Default (Dashboard)
+        # ==========================================
+        $rawQuery    = $request.Url.Query
+        $queryString = if ([string]::IsNullOrWhiteSpace($rawQuery)) { "(No Parameters)" } else { $rawQuery }
+        $machineName = $env:COMPUTERNAME
+        $bootTime    = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString("yyyy-MM-dd HH:mm:ss")
+        $currentTime = Get-Date -Format "HH:mm:ss"
 
         $html = @"
 <html>
@@ -65,6 +76,7 @@ while ($listener.IsListening) {
         <div class="label">Relative Path</div><div class="path-box">$relativePath</div>
         <div class="label">Query String Received</div><div class="query-box">$queryString</div>
         <div class="footer">Server Time: $currentTime</div>
+        <div style="margin-top:10px; color:#238636; font-size:0.7rem;">Health Route /health is Active</div>
     </div>
 </body>
 </html>
@@ -81,19 +93,15 @@ while ($listener.IsListening) {
 
 $serverCode | Out-File -FilePath $scriptPath -Encoding UTF8 -Force
 
-# ===============================
-# 4. Register Scheduled Task
-# ===============================
+# ==============================================================================
+# PHASE 3: REGISTER AND START
+# ==============================================================================
 $action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-ExecutionPolicy Bypass -File `"$scriptPath`""
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
 Unregister-ScheduledTask -TaskName "AzurePersistentServer" -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName "AzurePersistentServer" -Action $action -Trigger $trigger -Principal $principal
-
-# ===============================
-# 5. Start Immediately
-# ===============================
 Start-ScheduledTask -TaskName "AzurePersistentServer"
 
-Write-Host "✅ Fixed! Query string will now show clearly in the purple box." -ForegroundColor Cyan
+Write-Host "✅ Done! Use /health for your Custom Health Probe path." -ForegroundColor Green
