@@ -87,6 +87,46 @@
     },
     // 4. PUBLIC IP LOOP
     {
+      "apiVersion": "2023-05-01",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "name": "[concat('nsg-hub', add(copyIndex(), 1))]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "Allow-RDP",
+            "properties": {
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "3389",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 100,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "Allow-HTTP",
+            "properties": {
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "80",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 110,
+              "direction": "Inbound"
+            }
+          }
+        ]
+      },
+      "copy": {
+        "name": "nsgLoop",
+        "count": 2
+      }
+    },
+    {
       "type": "Microsoft.Network/publicIPAddresses",
       "apiVersion": "2023-05-01",
       "name": "[format('pip-vm{0}', add(copyIndex(), 1))]",
@@ -117,7 +157,8 @@
       },
       "dependsOn": [
         "vnetLoop",
-        "pipLoop"
+        "pipLoop",
+        "nsgLoop"
       ],
       "properties": {
         "ipConfigurations": [
@@ -132,7 +173,10 @@
               }
             }
           }
-        ]
+        ],
+        "networkSecurityGroup": {
+          "id": "[resourceId('Microsoft.Network/networkSecurityGroups', concat('nsg-hub', add(copyIndex(), 1)))]"
+        }
       }
     },
     // 6. VM LOOP
@@ -177,6 +221,28 @@
               "id": "[resourceId('Microsoft.Network/networkInterfaces', format('nic-vm{0}', add(copyIndex(), 1)))]"
             }
           ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines/extensions",
+      "apiVersion": "2023-07-01",
+      "name": "[format('vm{0}/InstallIIS', add(copyIndex(), 1))]",
+      "location": "[resourceGroup().location]",
+      "copy": {
+        "name": "extensionLoop",
+        "count": "[variables('vmCount')]"
+      },
+      "dependsOn": [
+        "vmLoop"
+      ],
+      "properties": {
+        "publisher": "Microsoft.Compute",
+        "type": "CustomScriptExtension",
+        "typeHandlerVersion": "1.10",
+        "autoUpgradeMinorVersion": true,
+        "settings": {
+          "commandToExecute": "[format('powershell -ExecutionPolicy Unrestricted -Command \"Add-WindowsFeature Web-Server; Set-Content -Path ''C:\\inetpub\\wwwroot\\iisstart.htm'' -Value ''<h1>Welcome to {0}</h1>''\"', format('vm{0}', add(copyIndex(), 1)))]"
         }
       }
     }
