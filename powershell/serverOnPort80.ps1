@@ -3,19 +3,19 @@
 # ==============================================================================
 Write-Host "🧹 Cleaning environment..." -ForegroundColor Yellow
 Get-Process -Name "PowerShell" | Where-Object { $_.Id -ne $PID } | Stop-Process -Force -ErrorAction SilentlyContinue
-netsh http delete urlacl url=http://*:8080/ 2>$null
-netsh http add urlacl url=http://*:8080/ user=Everyone 2>$null
-New-NetFirewallRule -DisplayName "Allow HTTP 8080" -Direction Inbound -LocalPort 8080 -Protocol TCP -Action Allow -ErrorAction SilentlyContinue
+netsh http delete urlacl url=http://*:80/ 2>$null
+netsh http add urlacl url=http://*:80/ user=Everyone 2>$null
+New-NetFirewallRule -DisplayName "Allow HTTP 80" -Direction Inbound -LocalPort 80 -Protocol TCP -Action Allow -ErrorAction SilentlyContinue
 
 # ==============================================================================
 # PHASE 2: SETUP DIRECTORIES AND SERVER SCRIPT
 # ==============================================================================
 $scriptDir = "C:\AzureScripts"
 if (!(Test-Path $scriptDir)) { New-Item -ItemType Directory -Path $scriptDir -Force }
-$scriptPath = "$scriptDir\PersistentServer8080.ps1"
+$scriptPath = "$scriptDir\PersistentServer80.ps1"
 
 $serverCode = @'
-$port = 8080
+$port = 80
 Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | ForEach-Object {
     Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
 }

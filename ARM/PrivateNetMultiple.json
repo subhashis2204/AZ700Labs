@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "vnetCount": {
+      "type": "int",
+      "defaultValue": 3
+    }
+  },
+  "variables": {},
+  "resources": [
+    {
+      "apiVersion": "2020-08-01",
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[concat('vnet', copyIndex())]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[concat('10.', copyIndex(), '.0.0/16')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "default",
+            "properties": {
+              "addressPrefix": "[concat('10.', copyIndex(), '.0.0/24')]"
+            }
+          }
+        ]
+      },
+      "copy": {
+        "count": "[parameters('vnetCount')]",
+        "name": "recursiveVnet",
+        "mode": "Parallel"
+      }
+    }
+  ],
+  "outputs": {}
+}

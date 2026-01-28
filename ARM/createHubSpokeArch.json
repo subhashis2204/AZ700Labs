@@ -1,0 +1,184 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "vnetCount": {
+      "type": "int",
+      "defaultValue": 3
+    },
+    "adminUsername": {
+      "type": "string",
+      "defaultValue": "subhashis"
+    },
+    "adminPassword": {
+      "type": "securestring"
+    }
+  },
+  "variables": {
+    "vmCount": "[sub(parameters('vnetCount'), 1)]",
+    "uniqueId": "[uniqueString(resourceGroup().id)]"
+  },
+  "resources": [
+    // 1. VNET LOOP (Hub and Spokes)
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-05-01",
+      "name": "[format('vnet{0}', copyIndex())]",
+      "location": "[resourceGroup().location]",
+      "copy": {
+        "name": "vnetLoop",
+        "count": "[parameters('vnetCount')]"
+      },
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[format('10.{0}.0.0/16', copyIndex())]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "default",
+            "properties": {
+              "addressPrefix": "[format('10.{0}.0.0/24', copyIndex())]"
+            }
+          }
+        ]
+      }
+    },
+    // 2. DYNAMIC PEERING (Spoke to Hub)
+    {
+      "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+      "apiVersion": "2023-05-01",
+      "name": "[format('vnet{0}/vnet{0}-to-vnet0', add(copyIndex(), 1))]",
+      "copy": {
+        "name": "spokeToHubPeering",
+        "count": "[variables('vmCount')]"
+      },
+      "dependsOn": [
+        "vnetLoop"
+      ],
+      "properties": {
+        "remoteVirtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', 'vnet0')]"
+        },
+        "allowVirtualNetworkAccess": true,
+        "allowForwardedTraffic": true
+      }
+    },
+    // 3. DYNAMIC PEERING (Hub to Spoke)
+    {
+      "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+      "apiVersion": "2023-05-01",
+      "name": "[format('vnet0/vnet0-to-vnet{0}', add(copyIndex(), 1))]",
+      "copy": {
+        "name": "hubToSpokePeering",
+        "count": "[variables('vmCount')]"
+      },
+      "dependsOn": [
+        "vnetLoop"
+      ],
+      "properties": {
+        "remoteVirtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', format('vnet{0}', add(copyIndex(), 1)))]"
+        },
+        "allowVirtualNetworkAccess": true,
+        "allowForwardedTraffic": true
+      }
+    },
+    // 4. PUBLIC IP LOOP
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-05-01",
+      "name": "[format('pip-vm{0}', add(copyIndex(), 1))]",
+      "location": "[resourceGroup().location]",
+      "sku": {
+        "name": "Standard"
+      },
+      "copy": {
+        "name": "pipLoop",
+        "count": "[variables('vmCount')]"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static",
+        "dnsSettings": {
+          "domainNameLabel": "[toLower(format('vm{0}-{1}', add(copyIndex(), 1), variables('uniqueId')))]"
+        }
+      }
+    },
+    // 5. NIC LOOP
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-05-01",
+      "name": "[format('nic-vm{0}', add(copyIndex(), 1))]",
+      "location": "[resourceGroup().location]",
+      "copy": {
+        "name": "nicLoop",
+        "count": "[variables('vmCount')]"
+      },
+      "dependsOn": [
+        "vnetLoop",
+        "pipLoop"
+      ],
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-vm{0}', add(copyIndex(), 1)))]"
+              },
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', format('vnet{0}', add(copyIndex(), 1)), 'default')]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    // 6. VM LOOP
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2023-07-01",
+      "name": "[format('vm{0}', add(copyIndex(), 1))]",
+      "location": "[resourceGroup().location]",
+      "copy": {
+        "name": "vmLoop",
+        "count": "[variables('vmCount')]"
+      },
+      "dependsOn": [
+        "nicLoop"
+      ],
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "Standard_B2s"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "MicrosoftWindowsServer",
+            "offer": "WindowsServer",
+            "sku": "2022-Datacenter",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage",
+            "managedDisk": {
+              "storageAccountType": "StandardSSD_LRS"
+            }
+          }
+        },
+        "osProfile": {
+          "computerName": "[format('vm{0}', add(copyIndex(), 1))]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]"
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('nic-vm{0}', add(copyIndex(), 1)))]"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
