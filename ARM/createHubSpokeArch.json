@@ -11,7 +11,8 @@
       "defaultValue": "subhashis"
     },
     "adminPassword": {
-      "type": "securestring"
+      "type": "securestring",
+      "defaultValue": "testing2204."
     }
   },
   "variables": {
@@ -123,7 +124,7 @@
       },
       "copy": {
         "name": "nsgLoop",
-        "count": 2
+        "count": "[variables('vmCount')]"
       }
     },
     {
