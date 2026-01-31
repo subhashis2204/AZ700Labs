@@ -4,7 +4,7 @@ Enable-AzContextAutosave -Scope CurrentUser
 # 2. Login Logic
 
 $context = Get-AzContext
-if ($context -eq $null) {
+if ($null -eq $context) {
     Write-Host "Opening browser for login..." -ForegroundColor Yellow
     Connect-AzAccount
 }

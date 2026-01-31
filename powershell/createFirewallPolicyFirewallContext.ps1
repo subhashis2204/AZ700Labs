@@ -11,7 +11,9 @@ if ($null -eq $context) {
 
 $rsgname = 'AZ700LABS'
 $fwname = 'FW'
-$fwpname = 'FWP4'
+$spoke1cidr = '10.1.0.0/16'
+$spoke2cidr = '10.2.0.0/16'
+$vm_name = 'vm1'
 $location = Get-AzResourceGroup -Name $rsgname | Select-Object -ExpandProperty Location
 
 # -------------------------------------------
@@ -25,22 +27,18 @@ if ($null -eq $fw){
     return
 }
 
-
 # -------------------------------------------
 # create and retrieve firewall policy
 # -------------------------------------------
-$firewallpolicy = New-AzFirewallPolicy `
-                    -Name $fwpname `
-                    -ResourceGroupName $rsgname `
-                    -Location $location
 
-$getfwpolicy = Get-AzFirewallPolicy -Name $fwpname -ResourceGroupName $rsgname
+$firewallpolicy = $fw.FirewallPolicy.Id
+
+$getfwpolicy = Get-AzFirewallPolicy -ResourceId $firewallpolicy
 
 # -------------------------------------------
 # get the pvt ip of the vm for DNAT whitelisting
 # -------------------------------------------
 
-$vm_name = 'vm1'
 $vm = Get-AzVM -Name $vm_name -ResourceGroupName $rsgname 
 
 $vm_nic_id = $vm.NetworkProfile.NetworkInterfaces[0].Id
@@ -48,62 +46,88 @@ $vm_nic = Get-AzNetworkInterface -ResourceId $vm_nic_id
 
 $vm_pvt_ip = $vm_nic.IpConfigurations[0].PrivateIpAddress
 
+Write-Host "Private ip of vm is", $vm_pvt_ip
+
 # -------------------------------------------
 # create DNAT rules for the policy
 # -------------------------------------------
 
-$dnat_allow_rdp_vm1 = New-AzFirewallNatRule `
--Name AllowVmDNAT `
--SourceAddress * `
--DestinationAddress 
+$fw_pip_address_rscid = $fw.IpConfigurations[0].PublicIpAddress.Id
+$fw_pip_address = Get-AzResource -ResourceId $fw_pip_address_rscid
+$fw_pip_name = $fw_pip_address.Name
+$fw_pip_rsg = $fw_pip_address.ResourceGroupName
+
+$fw_pip = Get-AzPublicIpAddress -Name $fw_pip_name -ResourceGroupName $fw_pip_rsg
+
+Write-Host "Front end ip of firewall is", $fw_pip.IpAddress
+
+$dnat_allow_rdp_vm1 = New-AzFirewallPolicyNatRule `
+                        -Name AllowVmDNAT `
+                        -SourceAddress * `
+                        -DestinationAddress $fw_pip.IpAddress `
+                        -DestinationPort 3389 `
+                        -Protocol TCP `
+                        -TranslatedAddress $vm_pvt_ip `
+                        -TranslatedPort 3389
 
 # -------------------------------------------
-# create network rules for the policy
+# create network rules for east-west traffic
 # -------------------------------------------
 $nr_allow_eastwest_Vnet1ToHub = New-AzFirewallPolicyNetworkRule `
                                     -Name AllowTrafficFromSpoke1 `
-                                    -SourceAddress 10.1.0.0/16 `
-                                    -DestinationAddress * `
+                                    -SourceAddress $spoke1cidr `
+                                    -DestinationAddress $spoke2cidr `
                                     -DestinationPort * `
                                     -Protocol Any
 
 $nr_allow_eastwest_Vnet2ToHub = New-AzFirewallPolicyNetworkRule `
                                     -Name AllowTrafficFromSpoke2 `
-                                    -SourceAddress 10.2.0.0/16 `
-                                    -DestinationAddress * `
+                                    -SourceAddress $spoke2cidr `
+                                    -DestinationAddress $spoke1cidr `
                                     -DestinationPort * `
                                     -Protocol Any
 
 # -------------------------------------------
-# create a filter grp for the created rules
+# create a filter grp for the created network rules
 # -------------------------------------------
-$rulecollectionconfig = New-AzFirewallPolicyFilterRuleCollection `
-                            -Name testing2 `
+$rulecollectionconfig_nwk = New-AzFirewallPolicyFilterRuleCollection `  # filter grp for network / application rules
+                            -Name NetworkRules `
                             -Priority 500 `
                             -Rule $nr_allow_eastwest_Vnet1ToHub, $nr_allow_eastwest_Vnet2ToHub `
                             -ActionType Allow
-$rulecollectionconfig
 
-# -------------------------------------------
-# create and retrieve collection grp
-# -------------------------------------------
-$newrulecollection = New-AzFirewallPolicyRuleCollectionGroup `
-                        -Name testing `
+# ---------------------------------------------------------------------------------
+# create a nat collection grp
+# ---------------------------------------------------------------------------------
+$rulecollectionconfig_dnat = New-AzFirewallPolicyNatRuleCollection `  # nat grp for dnat / snat rules
+                            -Name DnatRules `
+                            -Priority 400 `
+                            -Rule $dnat_allow_rdp_vm1 `
+                            -ActionType Dnat
+
+# ---------------------------------------------------------------------------------
+# create and retrieve rule collection
+# ---------------------------------------------------------------------------------
+$new_nw_rulecollection = New-AzFirewallPolicyRuleCollectionGroup `
+                        -Name CustomRuleCollection `
                         -Priority 400 `
                         -FirewallPolicyObject $getfwpolicy
 
-$rulecollection = Get-AzFirewallPolicyRuleCollectionGroup -Name testing -AzureFirewallPolicyName $fwpname -ResourceGroupName $rsgname
+$nw_rulecollection = Get-AzFirewallPolicyRuleCollectionGroup `
+                        -Name CustomRuleCollection `
+                        -AzureFirewallPolicyName $getfwpolicy.Name `
+                        -ResourceGroupName $rsgname
 
 
 # -------------------------------------------
-# manually add the filter grp to the collection
+# manually add the filter and nat grp to the rule collection
 # -------------------------------------------
-$rulecollection.Properties.RuleCollection.Add($rulecollectionconfig)
+$nw_rulecollection.Properties.RuleCollection.Add($rulecollectionconfig_nwk)
+$nw_rulecollection.Properties.RuleCollection.Add($rulecollectionconfig_dnat)
 
-
 # -------------------------------------------
-# Finally update the collection grp on Azure
+# Finally update the collection on Azure
 # -------------------------------------------
-Set-AzFirewallPolicyRuleCollectionGroup -Name testing -FirewallPolicyObject $getfwpolicy -RuleCollection $rulecollection.Properties.RuleCollection -Priority 500
+Set-AzFirewallPolicyRuleCollectionGroup -Name CustomRuleCollection -FirewallPolicyObject $getfwpolicy -RuleCollection $nw_rulecollection.Properties.RuleCollection -Priority 200
 
 
