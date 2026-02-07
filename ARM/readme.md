@@ -28,9 +28,7 @@ note: we will peer our nva with the ARS, and the ARS will directly push the rout
 
 ### setting up the azure nva router
 
-```
-IP Forwarding  must be enabled on the NVA VM's NIC to allow it to route traffic between the spokes and the on-premises network.
-```
+_IP Forwarding must be enabled on the NVA VM's NIC to allow it to route traffic between the spokes and the on-premises network._
 
 - ssh to the NVA
 - Enable IPv4 Forwarding (OS level):
@@ -97,9 +95,7 @@ Check Advertised Routes: Run `show ip bgp neighbors <ARS-PRIVATE-IP1> advertised
 
 - These steps will establish a BGP session between the NVA and Azure Route Server, allowing dynamic route exchange. The NVA will advertise the spoke and on-prem routes to ARS, which will then propagate them to the rest of the Azure network.
 
-```
-Any newly peered spoke VNet will automatically inherit the advertised if gateway transit is allowed on the peering.
-```
+_Any newly peered spoke VNet will automatically inherit the advertised routes if gateway transit is allowed on the peering._
 
 #### Enabling StrongSwan for IPsec VPN
 
@@ -115,9 +111,7 @@ sudo apt-get update && sudo apt-get install -y strongswan
 
 - we don't need any complicated router setup for the on-prem simulation. Deploy an on-prem environment using the script [here](./onPremHub.json)
 
-```
-This will deploy a simple Linux VM in a separate VNet. It is automatically configured with vpn and BGP to peer with the NVA router in Azure.
-```
+_This will deploy a simple Linux VM in a separate VNet. It is automatically configured with vpn and BGP to peer with the NVA router in Azure._
 
 ## Setting up the IPsec VPN (on both sides)
 
