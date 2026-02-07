@@ -135,7 +135,7 @@ sudo apt-get update && sudo apt-get install -y strongswan
 
 ### Setting Up the On-Prem Router
 
-No complex router setup is required for the on-prem simulation. Deploy the on-prem environment using the ARM template script ![here](./onPremHub.json)
+No complex router setup is required for the on-prem simulation. Deploy the on-prem environment using the ARM template script [here](./onPremHub.json)
 
 _This deploys a simple Linux VM in a separate VNet. It is automatically configured with VPN and BGP components to peer with the Azure NVA router._
 
