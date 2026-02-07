@@ -103,11 +103,13 @@ From the FRR shell (`vtysh`):
   `show ip bgp summary`  
   The **State/PfxRcd** column should show a number (e.g., 5), not _Active_ or _Idle_.
 
+![alt text](./imges/ipbgpsummary.png)
+
 - **Check advertised routes**:  
   `show ip bgp neighbors <ARS-PRIVATE-IP1> advertised-routes`  
   This confirms the NVA is advertising spoke routes to Azure.
 
-![alt text](./imges/image.png)
+![alt text](./imges/advertisedroutes.png)
 
 These steps establish a BGP session between the NVA and Azure Route Server and enable dynamic route exchange. The NVA advertises the spoke and on-prem routes to ARS, which then propagates them across the Azure network.
 
@@ -201,3 +203,5 @@ sudo ipsec statusall
 ```
 
 You should see the connection state as **ESTABLISHED** for both directions. Additionaly, if you access the nginx web server on the on-prem VM from the spoke VMs, it should work, confirming end-to-end connectivity through the NVA and the VPN tunnel.
+
+![alt text](./imges/ipsecsuccess.png)
