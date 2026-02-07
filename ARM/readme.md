@@ -155,20 +155,20 @@ EOF'
 
 ### StrongSwan Configuration
 
-Create `/etc/ipsec.conf`:
+Run `sudo nano /etc/ipsec.conf`:
 
 ```
-# left = local
-# right = remote
+# left = local network
+# right = remote network
 
 # On-prem router
 conn onprem-to-azure
     authby=secret
     left=%any
     leftid=<ONPREM_PUBLIC_IP>
-    leftsubnet=<ONPREM_CIDR>
+    leftsubnet=<ONPREM_CIDR_TRAFFIC_FILTER>
     right=<NVA_PUBLIC_IP>
-    rightsubnet=<AZURE_HUB_CIDR>
+    rightsubnet=<AZURE_HUB_CIDR_TRAFFIC_FILTER>
     ike=aes256-sha256-modp2048
     esp=aes256-sha256
     auto=start
@@ -178,13 +178,15 @@ conn azure-to-onprem
     authby=secret
     left=%any
     leftid=<NVA_PUBLIC_IP>
-    leftsubnet=<AZURE_HUB_CIDR>
+    leftsubnet=<AZURE_HUB_CIDR_TRAFFIC_FILTER>
     right=<ONPREM_PUBLIC_IP>
-    rightsubnet=<ONPREM_CIDR>
+    rightsubnet=<ONPREM_CIDR_TRAFFIC_FILTER>
     ike=aes256-sha256-modp2048
     esp=aes256-sha256
     auto=start
 ```
+
+**Note**: For policy based VPNs, the router checks both the source and destination address. If both of them match the traffic filter then that traffic is intercepted and sent via the tunnel. But for policy based VPNs only the destination address is checked against the filter.
 
 Restart StrongSwan:
 
