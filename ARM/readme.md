@@ -107,7 +107,7 @@ From the FRR shell (`vtysh`):
   `show ip bgp neighbors <ARS-PRIVATE-IP1> advertised-routes`  
   This confirms the NVA is advertising spoke routes to Azure.
 
-![alt text](./images/image.png)
+![alt text](./imges/image.png)
 
 These steps establish a BGP session between the NVA and Azure Route Server and enable dynamic route exchange. The NVA advertises the spoke and on-prem routes to ARS, which then propagates them across the Azure network.
 
@@ -135,9 +135,7 @@ sudo apt-get update && sudo apt-get install -y strongswan
 
 ### Setting Up the On-Prem Router
 
-No complex router setup is required for the on-prem simulation. Deploy the on-prem environment using the ARM template script here:
-
-`./onPremHub.json`
+No complex router setup is required for the on-prem simulation. Deploy the on-prem environment using the ARM template script ![here](./onPremHub.json)
 
 _This deploys a simple Linux VM in a separate VNet. It is automatically configured with VPN and BGP components to peer with the Azure NVA router._
 
