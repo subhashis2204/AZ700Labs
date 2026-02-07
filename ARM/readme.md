@@ -1,121 +1,151 @@
-## Architecture overview
+# Architecture Overview
 
-The idea is to have a hub-and-spoke architecture, where the hub VNet will contain the NVA (Network Virtual Appliance) firewall, and the spoke VNets will represent different departments (Sales and Marketing). The on-premises network will be simulated using a separate VNet.
+The idea is to build a hub-and-spoke architecture where the hub VNet contains the NVA (Network Virtual Appliance) firewall, and the spoke VNets represent different departments (Sales and Marketing). The on-premises network will be simulated using a separate VNet.
 
-- **Hub VNet**: `10.0.0.0/16` (Contains the NVA)
+- **Hub VNet**: `10.0.0.0/16` (contains the NVA)
+- **Spoke VNets**:
+  - `10.1.0.0/16` (Sales)
+  - `10.2.0.0/16` (Marketing)
+- **On-Prem VNet**: `172.16.0.0/16` (simulated using a separate VNet)
+- **Routing**: eBGP via Azure Route Server (ARS) and FRRouting (FRR)
+- **Tunneling**: Policy-based IPsec VPN using StrongSwan
 
-- **Spoke VNets**: `10.1.0.0/16` (Sales), `10.2.0.0/16` (Marketing)
+---
 
-- **On-Prem VNet**: `172.16.0.0/16` (Simulated via separate VNet)
+## On the Azure Side
 
-- **Routing**: eBGP via Azure Route Server (ARS) and FRRouting (FRR).
-
-- **Tunneling**: Policy-based IPsec VPN via StrongSwan.
-
-## on the azure side
-
-### For the Azure Hub
+### Azure Hub
 
 - Deploy an Azure Linux VM in the hub VNet to act as a router.
 - Configure Azure Route Server (ARS) in the hub VNet to enable dynamic routing with the NVA.
 
-note: we will peer our nva with the ARS, and the ARS will directly push the routes to the spoke VNets, so every vm in the spoke VNets will have a default route pointing to the NVA. No need for UDRs in the spoke VNets.
+**Note:** Enable **_Branch-to-Branch_** routing on the ARS.
 
-### For the Azure Spokes
+**Note:** We will peer the NVA with ARS. ARS will then push routes directly to the spoke VNets, so every VM in the spoke VNets will receive a default route pointing to the NVA. No UDRs are required in the spoke VNets.
+
+---
+
+### Azure Spokes
 
 - Deploy Azure Linux VMs in each spoke VNet (Sales and Marketing) to represent departmental resources.
-- Ensure that the spoke VNets are peered with the hub VNet and allow Gateway Transit to enable routing through the NVA.
+- Ensure the spoke VNets are peered with the hub VNet and that **Gateway Transit** is enabled so routing can occur through the NVA.
 
-### setting up the azure nva router
+---
 
-_IP Forwarding must be enabled on the NVA VM's NIC to allow it to route traffic between the spokes and the on-premises network._
+## Setting Up the Azure NVA Router
 
-- ssh to the NVA
-- Enable IPv4 Forwarding (OS level):
+_IP forwarding must be enabled on the NVA VM NIC to allow it to route traffic between the spokes and the on-premises network._
+
+- SSH into the NVA
+- Enable IPv4 forwarding at the OS level:
 
 ```
 # Enable forwarding for the current session
 sudo sysctl -w net.ipv4.ip_forward=1
 
-# Make it permanent after a reboot
+# Make it persistent across reboots
 echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
 ```
 
-- Install FRRouting (FRR): FRR is the modern suite for BGP on Linux
+---
+
+### Install FRRouting (FRR)
+
+FRR is a modern routing suite for BGP on Linux.
 
 ```
 sudo apt update
 sudo apt install frr -y
 ```
 
-- Configure BGP on the NVA to peer with Azure Route Server (ARS):
+---
 
-1. Enable BGP deaemon in FRR: `sudo nano /etc/frr/daemons`
-2. Set `bgpd=yes` and save the file `ctrl+o`, `Enter`, then exit with `ctrl+x`.
-3. Restart FRR: `sudo systemctl restart frr`
-4. Enter the FRR shell: `sudo vtysh`
+### Configure BGP on the NVA to Peer with ARS
+
+1. Enable the BGP daemon in FRR:
+   `sudo nano /etc/frr/daemons`
+2. Set `bgpd=yes`, save, and exit.
+3. Restart FRR:
+   `sudo systemctl restart frr`
+4. Enter the FRR shell:
+   `sudo vtysh`
 
 ```
 conf t
 router bgp 65001
-    bgp router-id <VM-PRIVATE-IP>       # Use the NVA's private IP as the router ID
-        no bgp ebgp-requires-policy     # Allow BGP sessions without needing a policy
+    bgp router-id <VM-PRIVATE-IP>       # Use the NVA private IP as the router ID
+    no bgp ebgp-requires-policy
 
-        neighbor <ARS-PRIVATE-IP1> remote-as 65515
-        neighbor <ARS-PRIVATE-IP2> remote-as 65515
+    neighbor <ARS-PRIVATE-IP1> remote-as 65515
+    neighbor <ARS-PRIVATE-IP2> remote-as 65515
 
-        # Force-enable the IPv4 channel for BGP sessions
-        address-family ipv4 unicast
+    address-family ipv4 unicast
+        neighbor <ARS-PRIVATE-IP1> next-hop-self
+        neighbor <ARS-PRIVATE-IP2> next-hop-self
 
-            # Ensures the NVA tells ARS to send traffic TO the NVA
-            neighbor <ARS-PRIVATE-IP1> next-hop-self
-            neighbor <ARS-PRIVATE-IP2> next-hop-self
+        network 10.1.0.0/16
+        network 10.2.0.0/16
+        network 172.16.0.0/16
 
-            network 10.1.0.0/16   # Advertise the Sales Spoke
-            network 10.2.0.0/16   # Advertise the Marketing Spoke
-            network 172.16.0.0/16 # Advertise the On-Prem VNet
-
-            # Tell BGP to ignore the local RIB check
-            no bgp network import-check
-        exit-address-family
-    exit
+        no bgp network import-check
+    exit-address-family
 exit
 write memory
 ```
 
-- Verification
+---
 
-From within the VM shell (vtysh):
+### Verification
 
-Check Neighbor Status: Run `show ip bgp summary`. You want to see "State/PfxRcd" as a number (e.g., 5), not Active or Idle.
+From the FRR shell (`vtysh`):
 
-Check Advertised Routes: Run `show ip bgp neighbors <ARS-PRIVATE-IP1> advertised-routes`. This confirms the VM is telling Azure about the Spokes.
+- **Check neighbor status**:  
+  `show ip bgp summary`  
+  The **State/PfxRcd** column should show a number (e.g., 5), not _Active_ or _Idle_.
 
-![alt text](./imges/image.png)
+- **Check advertised routes**:  
+  `show ip bgp neighbors <ARS-PRIVATE-IP1> advertised-routes`  
+  This confirms the NVA is advertising spoke routes to Azure.
 
-- These steps will establish a BGP session between the NVA and Azure Route Server, allowing dynamic route exchange. The NVA will advertise the spoke and on-prem routes to ARS, which will then propagate them to the rest of the Azure network.
+![alt text](./images/image.png)
 
-_Any newly peered spoke VNet will automatically inherit the advertised routes if gateway transit is allowed on the peering._
+These steps establish a BGP session between the NVA and Azure Route Server and enable dynamic route exchange. The NVA advertises the spoke and on-prem routes to ARS, which then propagates them across the Azure network.
 
-#### Enabling StrongSwan for IPsec VPN
+_Any newly peered spoke VNet will automatically inherit advertised routes if gateway transit is enabled on the peering._
 
-- Install StrongSwan on the NVA:
+---
+
+## Verify the propagation of routes to the spokes
+
+On the spoke VMs, navigate to Networking > Effective Routes. You should see the routes from the Route Server (ARS) with the next hop as the NVA. This confirms that the spokes are receiving the routes advertised by the NVA via ARS.
+
+---
+
+## Enabling StrongSwan for IPsec VPN
+
+Install StrongSwan on the NVA:
 
 ```
 sudo apt-get update && sudo apt-get install -y strongswan
 ```
 
-## For the On-Premises Simulation
+---
 
-### setting up the on-prem router
+## On-Premises Simulation
 
-- we don't need any complicated router setup for the on-prem simulation. Deploy an on-prem environment using the script [here](./onPremHub.json)
+### Setting Up the On-Prem Router
 
-_This will deploy a simple Linux VM in a separate VNet. It is automatically configured with vpn and BGP to peer with the NVA router in Azure._
+No complex router setup is required for the on-prem simulation. Deploy the on-prem environment using the ARM template script here:
 
-## Setting up the IPsec VPN (on both sides)
+`./onPremHub.json`
 
-- setup a secret PSK key for the vpn tunnel
+_This deploys a simple Linux VM in a separate VNet. It is automatically configured with VPN and BGP components to peer with the Azure NVA router._
+
+---
+
+## Setting Up the IPsec VPN (Both Sides)
+
+Set up a shared PSK for the VPN tunnel:
 
 ```
 sudo bash -c 'cat <<EOF > /etc/ipsec.secrets
@@ -123,15 +153,17 @@ sudo bash -c 'cat <<EOF > /etc/ipsec.secrets
 EOF'
 ```
 
-- Configure StrongSwan on the NVA to establish an IPsec VPN tunnel with the on-premises router. Create a configuration file at `/etc/ipsec.conf` with the following content:
+---
+
+### StrongSwan Configuration
+
+Create `/etc/ipsec.conf`:
 
 ```
-sudo nano /etc/ipsec.conf
+# left = local
+# right = remote
 
-# left - local
-# right - remote
-
-# use this for on-prem router
+# On-prem router
 conn onprem-to-azure
     authby=secret
     left=%any
@@ -143,7 +175,7 @@ conn onprem-to-azure
     esp=aes256-sha256
     auto=start
 
-# use this for azure nva router
+# Azure NVA router
 conn azure-to-onprem
     authby=secret
     left=%any
@@ -154,19 +186,18 @@ conn azure-to-onprem
     ike=aes256-sha256-modp2048
     esp=aes256-sha256
     auto=start
-
 ```
 
-- Restart the StrongSwan service to apply the configuration:
+Restart StrongSwan:
 
 ```
 sudo systemctl restart strongswan-starter
 ```
 
-- Verify the VPN tunnel is established by checking the status:
+Verify tunnel status:
 
 ```
 sudo ipsec statusall
 ```
 
-- You should see the connection status as "ESTABLISHED" for both directions (onprem-to-azure and azure-to-onprem).
+You should see the connection state as **ESTABLISHED** for both directions. Additionaly, if you access the nginx web server on the on-prem VM from the spoke VMs, it should work, confirming end-to-end connectivity through the NVA and the VPN tunnel.
