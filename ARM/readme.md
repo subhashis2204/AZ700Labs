@@ -1,6 +1,6 @@
-# Architecture Overview
+# AZ-700 Lab: Dynamic Hub-Spoke Routing with Azure Route Server and Linux NVA
 
-The idea is to build a hub-and-spoke architecture where the hub VNet contains the NVA (Network Virtual Appliance) firewall, and the spoke VNets represent different departments (Sales and Marketing). The on-premises network will be simulated using a separate VNet.
+The idea is to build a hub-and-spoke architecture where the hub VNet contains the NVA (Network Virtual Appliance) router, and the spoke VNets represent different departments (Sales and Marketing). The on-premises network will be simulated using a separate VNet.
 
 - **Hub VNet**: `10.0.0.0/16` (contains the NVA)
 - **Spoke VNets**:
@@ -21,14 +21,14 @@ The idea is to build a hub-and-spoke architecture where the hub VNet contains th
 
 **Note:** Enable **_Branch-to-Branch_** routing on the ARS.
 
-**Note:** We will peer the NVA with ARS. ARS will then push routes directly to the spoke VNets, so every VM in the spoke VNets will receive a default route pointing to the NVA. No UDRs are required in the spoke VNets.
+**Note:** We will peer the NVA with ARS. ARS will then push routes directly to the spoke VNets, so every VM in the spoke VNets will receive a custom route requiring all the traffic to pass through the NVA. No UDRs are required in the spoke VNets. Since, ARS uses BGP so if the NVA goes down then the custom routes will be removed automatically.
 
 ---
 
 ### Azure Spokes
 
 - Deploy Azure Linux VMs in each spoke VNet (Sales and Marketing) to represent departmental resources.
-- Ensure the spoke VNets are peered with the hub VNet and that **Gateway Transit** is enabled so routing can occur through the NVA.
+- Ensure the spoke VNets are peered with the hub VNet and that **allow remote vnets to use the ARS in the hub** is enabled so routing can be propagated to the spokes.
 
 ---
 
@@ -83,9 +83,9 @@ router bgp 65001
         neighbor <ARS-PRIVATE-IP1> next-hop-self
         neighbor <ARS-PRIVATE-IP2> next-hop-self
 
-        network 10.1.0.0/16
-        network 10.2.0.0/16
-        network 172.16.0.0/16
+        network <CIDR_RANGE_1>
+        network <CIDR_RANGE_2>
+        network <CIDR_RANGE_3>
 
         no bgp network import-check
     exit-address-family
@@ -113,13 +113,15 @@ From the FRR shell (`vtysh`):
 
 These steps establish a BGP session between the NVA and Azure Route Server and enable dynamic route exchange. The NVA advertises the spoke and on-prem routes to ARS, which then propagates them across the Azure network.
 
-_Any newly peered spoke VNet will automatically inherit advertised routes if gateway transit is enabled on the peering._
+_Any newly peered spoke VNet will automatically inherit advertised routes if allow gateway transit is enabled on the peering._
 
 ---
 
 ## Verify the propagation of routes to the spokes
 
 On the spoke VMs, navigate to Networking > Effective Routes. You should see the routes from the Route Server (ARS) with the next hop as the NVA. This confirms that the spokes are receiving the routes advertised by the NVA via ARS.
+
+![alt text](./imges/effective_routes_vm.png)
 
 ---
 
@@ -168,9 +170,9 @@ conn onprem-to-azure
     authby=secret
     left=%any
     leftid=<ONPREM_PUBLIC_IP>
-    leftsubnet=<ONPREM_CIDR_TRAFFIC_FILTER>
-    right=<NVA_PUBLIC_IP>
-    rightsubnet=<AZURE_HUB_CIDR_TRAFFIC_FILTER>
+    leftsubnet=<ONPREM_CIDR_RANGE_1>, <ONPREM_CIDR_RANGE_2>
+    right=<AZURE_PUBLIC_IP>
+    rightsubnet=<AZURE_CIDR_RANGE_1>, <AZURE_CIDR_RANGE_2>
     ike=aes256-sha256-modp2048
     esp=aes256-sha256
     auto=start
@@ -179,21 +181,22 @@ conn onprem-to-azure
 conn azure-to-onprem
     authby=secret
     left=%any
-    leftid=<NVA_PUBLIC_IP>
-    leftsubnet=<AZURE_HUB_CIDR_TRAFFIC_FILTER>
+    leftid=<AZURE_PUBLIC_IP>
+    leftsubnet=<AZURE_CIDR_RANGE_1>, <AZURE_CIDR_RANGE_2>
     right=<ONPREM_PUBLIC_IP>
-    rightsubnet=<ONPREM_CIDR_TRAFFIC_FILTER>
+    rightsubnet=<ONPREM_CIDR_RANGE_1>, <ONPREM_CIDR_RANGE_2>
     ike=aes256-sha256-modp2048
     esp=aes256-sha256
     auto=start
 ```
 
-**Note**: For policy based VPNs, the router checks both the source and destination address. If both of them match the traffic filter then that traffic is intercepted and sent via the tunnel. But for policy based VPNs only the destination address is checked against the filter.
+**Note**: Policy-based VPNs are very picky regarding traffic selection. If the traffic does not match the specific CIDR ranges defined in the policy (Proxy IDs), it is dropped. When peering VNets in Azure, every Spoke address space must be explicitly included in the policy (separated by commas) so the gateway can negotiate the correct Security Association. Similarly, all on-prem address spaces must be listed. In contrast, for Route-based VPNs, both the source and destination selectors are typically set to 0.0.0.0/0, and the actual pathing is handled by the routing tables of the routers on both sides.
 
 Restart StrongSwan:
 
 ```
 sudo systemctl restart strongswan-starter
+ipsec restart
 ```
 
 Verify tunnel status:
@@ -205,3 +208,5 @@ sudo ipsec statusall
 You should see the connection state as **ESTABLISHED** for both directions. Additionaly, if you access the nginx web server on the on-prem VM from the spoke VMs, it should work, confirming end-to-end connectivity through the NVA and the VPN tunnel.
 
 ![alt text](./imges/ipsecsuccess.png)
+
+**Note** : _In the world of Software Defined Networking(SDN), the concept of next hop is that if we can transmit the traffic to a specific destination to that point, it will automatically route it to the correct destination since it knows the desired destination._
