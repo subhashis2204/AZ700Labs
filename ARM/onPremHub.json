@@ -6,17 +6,33 @@
             "type": "string",
             "defaultValue": "subhashis"
         },
+        "vnetName": {
+            "type": "string",
+            "defaultValue": "Azure-VNet-1"
+        },
+        "vmName": {
+            "type": "string",
+            "defaultValue": "Azure-WebServer-1"
+        },
+        "vnetAddressSpace": {
+            "type": "string",
+            "defaultValue": "10.0.0.0/16"
+        },
+        "subnetAddressSpace": {
+            "type": "string",
+            "defaultValue": "10.0.0.0/24"
+        },
         "adminPasswordOrKey": {
             "type": "securestring",
             "defaultValue": "testing2204."
         }
     },
     "variables": {
-        "vnetName": "OnPrem-VNet",
-        "subnetName": "RouterSubnet",
-        "vmName": "OnPrem-Router",
+        "vnetName": "[parameters('vnetName')]",
+        "subnetName": "default",
+        "vmName": "[parameters('vmName')]",
         "location": "[resourceGroup().location]",
-        "customData": "[base64(concat('#!/bin/bash\n', 'exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1\n', 'echo \"Waiting for system locks...\"\n', 'while fuser /var/lib/dpkg/lock >/dev/null 2>&1 ; do sleep 5; done\n', 'apt-get update -y && apt-get install -y strongswan frr nginx\n', 'sysctl -w net.ipv4.ip_forward=1\n', 'echo \"net.ipv4.ip_forward=1\" >> /etc/sysctl.conf\n', 'sed -i \"s/bgpd=no/bgpd=yes/g\" /etc/frr/daemons\n', 'echo \"<html><body><h1>Welcome to On-Premise Router</h1></body></html>\" > /var/www/html/index.html\n', 'systemctl restart frr\n', 'systemctl restart nginx\n', 'systemctl enable strongswan frr nginx\n'))]"
+        "customData": "[base64(concat('#!/bin/bash\n', 'exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1\n', 'echo \"Waiting for system locks...\"\n', 'while fuser /var/lib/dpkg/lock >/dev/null 2>&1 ; do sleep 5; done\n', 'apt-get update -y && apt-get install -y strongswan frr nginx\n', 'sysctl -w net.ipv4.ip_forward=1\n', 'echo \"net.ipv4.ip_forward=1\" >> /etc/sysctl.conf\n', 'sed -i \"s/bgpd=no/bgpd=yes/g\" /etc/frr/daemons\n', 'echo \"<html><body><h1>Welcome to ', parameters('vmName'), '</h1></body></html>\" > /var/www/html/index.html\n', 'systemctl restart frr\n', 'systemctl restart nginx\n', 'systemctl enable strongswan frr nginx\n'))]"
     },
     "resources": [
         {
@@ -27,14 +43,14 @@
             "properties": {
                 "addressSpace": {
                     "addressPrefixes": [
-                        "172.16.0.0/16"
+                        "[parameters('vnetAddressSpace')]"
                     ]
                 },
                 "subnets": [
                     {
                         "name": "[variables('subnetName')]",
                         "properties": {
-                            "addressPrefix": "172.16.1.0/24"
+                            "addressPrefix": "[parameters('subnetAddressSpace')]"
                         }
                     }
                 ]

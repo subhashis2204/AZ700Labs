@@ -20,6 +20,27 @@
     "uniqueId": "[uniqueString(resourceGroup().id)]"
   },
   "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-05-01",
+      "name": "Azure-Hub",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "10.0.0.0/16"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "default",
+            "properties": {
+              "addressPrefix": "10.0.0.0/24"
+            }
+          }
+        ]
+      }
+    },
     // 1. VNET LOOP (Hub and Spokes)
     {
       "type": "Microsoft.Network/virtualNetworks",
