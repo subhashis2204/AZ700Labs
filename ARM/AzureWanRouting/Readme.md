@@ -1,8 +1,8 @@
-# Routing in Azure WAN
+# AZ-700 Lab: Routing in Azure WAN
 
 Azure Virtual WAN provides a centralized hub architecture for securely connecting on-premises resources with Azure networks and services.
 
-## Our Architecture for the lab
+## <u> Our Architecture for the lab</u>
 
 ![alt text](./images/architechtue_image.png)
 
@@ -17,7 +17,9 @@ Components in our architecture are as follows:
 
 **Important** : `Follow the address spaces shown in the diagram to avoid overlaps.`
 
-## Routing Scenario
+---
+
+## <u> Routing Scenario </u>
 
 - VNet ↔ VNet traffic should flow directly
 - VPN client / branch traffic should flow:
@@ -28,7 +30,7 @@ Components in our architecture are as follows:
 
 This requires custom hub route tables and controlled propagation.
 
-## Some basic terminologies in Azure WAN routing
+## <u> Some basic terminologies in Azure WAN routing </u>
 
 _**Association**_ : Association links a connection to a specific hub route table.
 
@@ -64,7 +66,9 @@ This way, we are effectively allowing all the peering to advertise their prefix 
 - Branch connections always associate with Default route table
 - Always verify using Effective Routes
 
-## Adding the Peering Connections
+---
+
+## <u> Adding the Peering Connections </u>
 
 ![alt text](./images/peering_connection_setting.png)
 
@@ -82,9 +86,17 @@ Note : I by mistake propagated a route to the default hub route table which was 
 
 ![alt text](./images/image-5.png)
 
-### Adding a Custom Route to the Default Hub Route Table
+---
 
-## Setting up the Custom Route Table
+## <u> Adding a Custom Route to the Default Hub Route Table </u>
+
+![alt text](./images/default_rt_custom_route.png)
+
+We need a custom route to forward the traffic from the vpn gateway to the firewall. This is because the hub route table (default) does not know about the peered address spaces since we have not allowed the peering connection to propagate to the default hub route table.
+
+---
+
+## <u> Setting up the Custom Route Table </u>
 
 Add a new route table that we will associate to the peered vnets. Any traffic leaving the Vnets must consult this route table for routing decision. To auto learn the prefixes we will also propagate to the same table.
 
@@ -114,7 +126,9 @@ Since the branch connections are not propagating to this route table, we need to
 
 `With this configuration, traffic from the VPN gateway enters the hub and is evaluated against the Default route table. The default route sends it to the firewall. The firewall then forwards the traffic to the destination VNet via the peering connection using the custom route table. Return traffic follows the same path in reverse, maintaining symmetric routing.`
 
-## Final Routing Status
+---
+
+## <u> Final Routing Status </u>
 
 ### Default Hub Route Table
 
