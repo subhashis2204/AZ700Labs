@@ -210,3 +210,29 @@ You should see the connection state as **ESTABLISHED** for both directions. Addi
 ![alt text](./imges/ipsecsuccess.png)
 
 **Note** : _In the world of Software Defined Networking(SDN), the concept of next hop is that if we can transmit the traffic to a specific destination to that point, it will automatically route it to the correct destination since it knows the desired destination._
+
+## Troubleshooting
+
+IPsec tunnels are established in 2 phases: Phase 1 (IKE SA) and Phase 2 (IPsec SA). In phase 1 the connection is established and in the second phase the data plane is established.
+
+Sometimes, the IPsec tunnel may establish successfully, but traffic may not flow as expected. Here are some common troubleshooting steps:
+
+1. **Check IPsec Status**: Use `sudo ipsec statusall` to check the status of the IPsec tunnels. Look for the keyword **INSTALLED** under each of the tunnel configurations. If absent, you might see something like this.
+
+![alt text](./imges/tunnel_error_1.png)
+
+It means that the tunnel is established but the data plane is not up.
+
+2. **Check Logs**: Type the command `sudo tail -f /var/log/syslog | grep charon` to view real-time logs from StrongSwan. Look for any error messages or warnings that could indicate issues with the tunnel establishment or traffic flow.
+
+![alt text](./imges/tunnel_error_2.png)
+
+Here the issue was the mismatch in the entryption protocols between the on-prem and Azure sides. Both of them could not agree on a common protocol to encrypt the traffic, so the tunnel was established but the data plane was not up.
+
+3. **Verify Configuration**: Double-check the IPsec configuration on both sides. Ensure that the PSK, encryption algorithms, and subnet definitions match exactly. Even a small typo can cause issues.
+
+In my case, i had to check the protocols in azure vpn connection and make sure they match the ones defined in the StrongSwan configuration file. After this change, the tunnel was established successfully and the data plane was up, allowing traffic to flow between the on-premises network and the Azure spokes.
+
+![alt text](./imges/tunnel_error_3.png)
+
+Finally, we can see the **INSTALLED** keyword in the IPsec status output, confirming that both the control plane and data plane of the VPN tunnel are up and running.

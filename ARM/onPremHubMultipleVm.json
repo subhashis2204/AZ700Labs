@@ -1,0 +1,189 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "adminUsername": {
+            "type": "string",
+            "defaultValue": "subhashis"
+        },
+        "vmCount": {
+            "type": "int",
+            "defaultValue": 1,
+            "metadata": {
+                "description": "Number of VMs to deploy"
+            }
+        },
+        "vnetName": {
+            "type": "string",
+            "defaultValue": "Azure-VNet-1"
+        },
+        "vmNamePrefix": {
+            "type": "string",
+            "defaultValue": "Web-Server"
+        },
+        "vnetAddressSpace": {
+            "type": "string",
+            "defaultValue": "10.0.0.0/16"
+        },
+        "subnetAddressSpace": {
+            "type": "string",
+            "defaultValue": "10.0.0.0/24"
+        },
+        "adminPasswordOrKey": {
+            "type": "securestring"
+        }
+    },
+    "variables": {
+        "vnetName": "[parameters('vnetName')]",
+        "subnetName": "default",
+        "location": "[resourceGroup().location]",
+        "customData": "[base64(concat('#!/bin/bash\n', 'apt-get update -y\n', 'apt-get install -y nginx\n', 'systemctl enable nginx\n', 'systemctl start nginx\n', 'echo \"<html><body><h1>Welcome to Nginx on Azure</h1></body></html>\" > /var/www/html/index.html\n'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2023-05-01",
+            "name": "[variables('vnetName')]",
+            "location": "[variables('location')]",
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "[parameters('vnetAddressSpace')]"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "[variables('subnetName')]",
+                        "properties": {
+                            "addressPrefix": "[parameters('subnetAddressSpace')]"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2023-05-01",
+            "name": "Web-NSG",
+            "location": "[variables('location')]",
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "Allow-HTTP",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "80",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 100,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "Allow-SSH",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "22",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 110,
+                            "direction": "Inbound"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "copy": {
+                "name": "vmLoop",
+                "count": "[parameters('vmCount')]"
+            },
+            "type": "Microsoft.Network/publicIPAddresses",
+            "apiVersion": "2023-05-01",
+            "name": "[concat(parameters('vmNamePrefix'), '-IP-', copyIndex())]",
+            "location": "[variables('location')]",
+            "sku": {
+                "name": "Standard"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "Static"
+            }
+        },
+        {
+            "copy": {
+                "name": "nicLoop",
+                "count": "[parameters('vmCount')]"
+            },
+            "type": "Microsoft.Network/networkInterfaces",
+            "apiVersion": "2023-05-01",
+            "name": "[concat(parameters('vmNamePrefix'), '-NIC-', copyIndex())]",
+            "location": "[variables('location')]",
+            "properties": {
+                "networkSecurityGroup": {
+                    "id": "[resourceId('Microsoft.Network/networkSecurityGroups', 'Web-NSG')]"
+                },
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "subnet": {
+                                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]"
+                            },
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIPAddresses', concat(parameters('vmNamePrefix'), '-IP-', copyIndex()))]"
+                            }
+                        }
+                    }
+                ]
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
+                "[resourceId('Microsoft.Network/publicIPAddresses', concat(parameters('vmNamePrefix'), '-IP-', copyIndex()))]",
+                "[resourceId('Microsoft.Network/networkSecurityGroups', 'Web-NSG')]"
+            ]
+        },
+        {
+            "copy": {
+                "name": "vmResourceLoop",
+                "count": "[parameters('vmCount')]"
+            },
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2023-03-01",
+            "name": "[concat(parameters('vmNamePrefix'), '-', copyIndex())]",
+            "location": "[variables('location')]",
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "Standard_B2s"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "Canonical",
+                        "offer": "0001-com-ubuntu-server-jammy",
+                        "sku": "22_04-lts",
+                        "version": "latest"
+                    }
+                },
+                "osProfile": {
+                    "computerName": "[concat(parameters('vmNamePrefix'), '-', copyIndex())]",
+                    "adminUsername": "[parameters('adminUsername')]",
+                    "adminPassword": "[parameters('adminPasswordOrKey')]",
+                    "customData": "[variables('customData')]"
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', concat(parameters('vmNamePrefix'), '-NIC-', copyIndex()))]"
+                        }
+                    ]
+                }
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkInterfaces', concat(parameters('vmNamePrefix'), '-NIC-', copyIndex()))]"
+            ]
+        }
+    ]
+}
